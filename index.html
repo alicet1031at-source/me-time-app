@@ -15,7 +15,6 @@
             border-radius: 24px;
             box-shadow: 0 8px 30px rgba(0, 0, 0, 0.04);
         }
-        /* 自訂選取框樣式 */
         .radio-custom:checked + div {
             border-color: #57534e;
             background-color: #f5f5f4;
@@ -126,7 +125,7 @@
             <div class="flex justify-center items-center py-4">
                 <div class="w-52 h-52 rounded-full border-4 border-stone-100 bg-stone-50 flex flex-col justify-center items-center shadow-inner relative">
                     <span id="timerDisplay" class="text-5xl font-light text-stone-800 tracking-tighter">01:00</span>
-                    <span id="timerSubText" class="text-[10px] text-stone-400 font-bold mt-2 tracking-widest uppercase">Me Time Counting</span>
+                    <span id="timerSubText" class="text-[10px] text-stone-400 font-bold mt-2 tracking-widest uppercase transition-colors">Me Time Counting</span>
                 </div>
             </div>
 
@@ -148,7 +147,7 @@
                 <div class="flex gap-2 justify-center items-center">
                     <input type="number" id="pomoInput" value="25" class="w-16 p-2 border border-stone-200 rounded-xl text-center font-bold text-stone-700 focus:outline-none focus:border-stone-400">
                     <span class="text-xs text-stone-500 font-medium">分鐘</span>
-                    <button onclick="startPomodoro()" class="bg-[#10b981] text-white px-4 py-2 rounded-xl font-bold text-sm shadow-sm hover:bg-[#059669] transition">啟動專注番茄鐘</button>
+                    <button onclick="startPomodoro()" class="bg-[#10b981] text-white px-4 py-2 rounded-xl font-bold text-sm shadow-sm hover:bg-[#059669] transition cursor-pointer">啟動專注番茄鐘</button>
                 </div>
             </div>
             
@@ -208,6 +207,51 @@
     <script>
         let localTimer = null;
         let swRegistration = null;
+        let wakeLock = null; // 螢幕常亮控制變數
+
+        // --- 核心防禦：抓包機制 (Visibility API) ---
+        document.addEventListener("visibilitychange", () => {
+            const currentMode = document.getElementById('timerSubText').innerText;
+            
+            // 如果網頁被隱藏（跳出 App 或螢幕關閉），且正在專注中
+            if (document.hidden && currentMode === "FOCUSING") {
+                
+                // 1. 停止本地與後台計時
+                clearInterval(localTimer);
+                if (swRegistration && swRegistration.active) {
+                    swRegistration.active.postMessage({ type: 'CANCEL_TIMER' });
+                }
+                releaseWakeLock(); // 解除螢幕常亮
+
+                // 2. 跳出警告 (稍微延遲確保畫面切換完成)
+                setTimeout(() => {
+                    alert("💥 專注中斷！你離開了畫面，番茄鐘已歸零，請重新開始。");
+                }, 100);
+
+                // 3. 畫面顯示失敗狀態，給予視覺懲罰
+                document.getElementById('timerDisplay').innerText = "00:00";
+                document.getElementById('timerSubText').innerText = "FOCUS FAILED";
+                document.getElementById('timerSubText').classList.replace('text-stone-400', 'text-red-600');
+            }
+        });
+
+        // --- 螢幕常亮控制 (Wake Lock API) ---
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('螢幕常亮已啟動，防止系統判定離開網頁');
+                }
+            } catch (err) {
+                console.log('螢幕常亮請求失敗:', err);
+            }
+        }
+
+        function releaseWakeLock() {
+            if (wakeLock !== null) {
+                wakeLock.release().then(() => wakeLock = null);
+            }
+        }
 
         // 1. 設定當前日期
         const today = new Date();
@@ -226,6 +270,7 @@
             navigator.serviceWorker.addEventListener('message', event => {
                 if (event.data.type === 'TIMER_DONE') {
                     alert(event.data.message || '時間到囉！');
+                    releaseWakeLock(); // 時間到解除螢幕常亮
                 }
             });
         }
@@ -250,7 +295,6 @@
             }
         }
 
-        // 心情按鈕變色邏輯
         function toggleMood(btn) {
             btn.classList.toggle('border-amber-400');
             btn.classList.toggle('bg-amber-50');
@@ -271,18 +315,18 @@
             document.getElementById('pomodoroToSleepAction').classList.add('hidden');
             
             document.getElementById('timerSubText').innerText = "ME TIME COUNTING";
-            document.getElementById('timerSubText').classList.replace('text-green-600', 'text-stone-400');
+            // 確保顏色重置
+            document.getElementById('timerSubText').className = "text-[10px] text-stone-400 font-bold mt-2 tracking-widest uppercase transition-colors";
 
             startTimer(minutes, "Me Time 充電時間已完成！", showPostTimerActions);
         }
 
-        // 5. 核心計時邏輯 (結合前端倒數與 Service Worker)
+        // 5. 核心計時邏輯 
         function startTimer(minutes, alertMessage, onComplete) {
             clearInterval(localTimer);
             let secondsLeft = minutes * 60;
             const display = document.getElementById('timerDisplay');
             
-            // 呼叫 Service Worker 進行背景計時
             if (swRegistration && swRegistration.active) {
                 const endTime = Date.now() + secondsLeft * 1000;
                 swRegistration.active.postMessage({ 
@@ -327,24 +371,34 @@
             document.getElementById('postTimerActions').classList.add('hidden');
             
             document.getElementById('timerDisplay').innerText = "25:00";
-            document.getElementById('timerSubText').innerText = "FOCUSING";
-            document.getElementById('timerSubText').classList.replace('text-green-600', 'text-stone-400');
+            document.getElementById('timerSubText').innerText = "READY TO FOCUS";
+            document.getElementById('timerSubText').className = "text-[10px] text-stone-400 font-bold mt-2 tracking-widest uppercase transition-colors";
             
             document.getElementById('pomodoroControls').classList.remove('hidden');
             document.getElementById('pomodoroToSleepAction').classList.remove('hidden');
         }
 
-        // 8. 啟動番茄鐘計時
+        // 8. 啟動番茄鐘計時 (包含防護啟動)
         function startPomodoro() {
             const minutes = parseInt(document.getElementById('pomoInput').value) || 25;
+            
+            // 每次重新啟動時，重置紅色失敗文字為正常灰色
+            document.getElementById('timerSubText').className = "text-[10px] text-stone-400 font-bold mt-2 tracking-widest uppercase transition-colors";
+            document.getElementById('timerSubText').innerText = "FOCUSING";
+            
+            requestWakeLock(); // 啟動螢幕常亮防護
+
             startTimer(minutes, "專注時間結束！辛苦了！", () => {
                 document.getElementById('timerSubText').innerText = "FOCUS COMPLETE";
+                releaseWakeLock(); // 正常結束，解除常亮
             });
         }
 
         // 9. 進入睡前檢視頁面
         function goToSleepReview() {
             clearInterval(localTimer);
+            releaseWakeLock(); // 保險起見解除常亮
+
             if (swRegistration && swRegistration.active) {
                 swRegistration.active.postMessage({ type: 'CANCEL_TIMER' });
             }
@@ -352,7 +406,6 @@
             document.getElementById('page2').classList.add('hidden');
             document.getElementById('page3').classList.remove('hidden');
             
-            // 處理自訂 Radio 按鈕的視覺
             const radios = document.querySelectorAll('input[name="reviewStatus"]');
             const mockRadios = document.querySelectorAll('input[name="reviewStatus_mock"]');
             radios.forEach((radio, index) => {
