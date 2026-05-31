@@ -1,7 +1,7 @@
 // ── Me Time Service Worker ──
 // 負責：後台計時、Push 通知、離線快取
 
-const CACHE_NAME = 'metime-v1';
+const CACHE_NAME = 'metime-v2';
 let timerTimeout = null;
 
 // ── 安裝：快取主頁面 ──
@@ -24,25 +24,26 @@ self.addEventListener('message', event => {
     if (timerTimeout) clearTimeout(timerTimeout);
 
     const remaining = data.endTime - Date.now();
+    const alertMessage = data.message || '時間結束了！';
     if (remaining <= 0) return;
 
     timerTimeout = setTimeout(() => {
-      // 時間到 → 發通知
+      // 時間到 → 發手機系統通知
       self.registration.showNotification('⚡ Me Time', {
-        body: '專注時間結束了！辛苦囉，稍微休息一下吧！',
+        body: alertMessage,
         icon: 'https://cdn-icons-png.flaticon.com/512/3106/3106775.png',
         badge: 'https://cdn-icons-png.flaticon.com/512/3106/3106775.png',
         tag: 'metime-timer',
         requireInteraction: true,
         vibrate: [200, 100, 200],
         actions: [
-          { action: 'open', title: '開啟網頁看結果 →' }
+          { action: 'open', title: '開啟網頁 →' }
         ]
       });
 
-      // 通知前端主頁面
+      // 通知前端網頁
       self.clients.matchAll({ includeUncontrolled: true }).then(clients => {
-        clients.forEach(client => client.postMessage({ type: 'TIMER_DONE' }));
+        clients.forEach(client => client.postMessage({ type: 'TIMER_DONE', message: alertMessage }));
       });
 
     }, remaining);
